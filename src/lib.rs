@@ -2,6 +2,7 @@
 //! (ORICO 9558RU3, 9528RU3, ...) from Linux without the vendor GUI.
 
 pub mod api;
+pub mod backup;
 pub mod io;
 #[doc(hidden)]
 pub mod mock;

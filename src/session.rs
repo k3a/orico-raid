@@ -45,8 +45,8 @@ pub struct Session<IO: SectorIo> {
     pub io: IO,
     pub lba: u64,
     seq: u32,
-    saved: [u8; SECTOR],
-    restored: bool,
+    pub saved: [u8; SECTOR],
+    pub backup_file: Option<std::path::PathBuf>,
     pub pid: u8,
     pub retry_delay: Duration,
 }
@@ -71,8 +71,8 @@ impl<IO: SectorIo> Session<IO> {
             None => bail!("no usable mailbox sector found on {}", io.name()),
         };
         let saved = io.read_sector(lba)?;
-        let mut s = Session { io, lba, seq: 1, saved, restored: false, pid: 0, retry_delay: Duration::from_millis(200) };
-        s.write_backup();
+        let backup_file = crate::backup::save(&io.name(), lba, &saved).ok().flatten();
+        let mut s = Session { io, lba, seq: 1, saved, backup_file, pid: 0, retry_delay: Duration::from_millis(200) };
         for m in HANDSHAKE_SEQUENCE {
             s.io.write_sector(lba, &proto::handshake_frame(m))?;
         }
@@ -82,29 +82,8 @@ impl<IO: SectorIo> Session<IO> {
                 Ok(s)
             }
             Err(e) => {
-                s.restore();
                 Err(anyhow!("{} does not answer as a JMicron RAID controller: {e}", s.io.name()))
             }
-        }
-    }
-
-    fn backup_path(&self) -> std::path::PathBuf {
-        let n: String = self.io.name().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-        std::env::temp_dir().join(format!("orico-raid-sector-backup{n}-{}.bin", self.lba))
-    }
-    /// Safety net: if we are killed while the borrowed sector is dirty, the original
-    /// content is still on disk in this file.
-    fn write_backup(&self) {
-        let _ = std::fs::write(self.backup_path(), self.saved);
-    }
-
-    /// Put the original sector content back (idempotent).
-    pub fn restore(&mut self) {
-        if !self.restored {
-            if self.io.write_sector(self.lba, &self.saved).is_ok() {
-                let _ = std::fs::remove_file(self.backup_path());
-            }
-            self.restored = true;
         }
     }
 
@@ -137,11 +116,5 @@ impl<IO: SectorIo> Session<IO> {
             }
         }
         Err(last)
-    }
-}
-
-impl<IO: SectorIo> Drop for Session<IO> {
-    fn drop(&mut self) {
-        self.restore();
     }
 }

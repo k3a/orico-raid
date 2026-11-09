@@ -3,7 +3,8 @@ use clap::{Parser, Subcommand};
 use orico_raid::api::{self, Snapshot};
 use orico_raid::io::BlockDevice;
 use orico_raid::session::Session;
-use orico_raid::{model, render, scan};
+use orico_raid::{backup, model, render, scan};
+use orico_raid::io::SectorIo;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -50,6 +51,18 @@ enum Cmd {
     },
     /// Nagios-style one-line check; exit code 0 OK / 1 WARNING / 2 CRITICAL / 3 UNKNOWN
     Check,
+    /// Write a saved mailbox-sector backup back to the disk (never done automatically)
+    Restore {
+        /// backup file (default: the only/matching one for --device)
+        #[arg(long)]
+        backup: Option<PathBuf>,
+        /// list saved backups and exit
+        #[arg(long)]
+        list: bool,
+        /// restore even if the content looks like a controller command frame (dangerous)
+        #[arg(long)]
+        force: bool,
+    },
     /// Hex dump of every raw controller response (for debugging / reverse engineering)
     Raw,
 }
@@ -68,7 +81,20 @@ fn targets(cli: &Cli) -> Result<Vec<PathBuf>> {
 fn open(path: &PathBuf) -> Result<(Session<BlockDevice>, Option<u64>)> {
     let dev = BlockDevice::open(path, true)?;
     let size = dev.size_bytes();
-    let s = Session::open(dev).with_context(|| format!("probing {}", path.display()))?;
+    let s = match Session::open(dev) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "note: a mailbox sector on {} was overwritten while probing. The original was saved in {}; it is NOT restored automatically (see `orico-raid restore --list`).",
+                path.display(),
+                backup::backup_dir().display()
+            );
+            return Err(e).with_context(|| format!("probing {}", path.display()));
+        }
+    };
+    if let Some(f) = &s.backup_file {
+        eprintln!("note: original content of mailbox sector LBA {} saved to {} (restore with `orico-raid restore -d {}`)", s.lba, f.display(), path.display());
+    }
     Ok((s, size))
 }
 
@@ -104,6 +130,41 @@ fn run(cli: &Cli) -> Result<i32> {
                 println!("no sd* devices found");
             }
         }
+        return Ok(0);
+    }
+
+    if let Cmd::Restore { backup: bf, list, force } = &cli.cmd {
+        if *list {
+            for p in backup::list() {
+                match backup::load(&p) {
+                    Ok(b) => println!("{}  device {} LBA {} saved {}", p.display(), b.device, b.lba, b.unix_time),
+                    Err(e) => println!("{}  unreadable: {e}", p.display()),
+                }
+            }
+            return Ok(0);
+        }
+        let dev = match cli.device.as_slice() {
+            [d] => d.clone(),
+            _ => bail!("restore needs exactly one --device"),
+        };
+        let files: Vec<PathBuf> = match bf {
+            Some(f) => vec![f.clone()],
+            None => backup::list().into_iter().filter(|p| backup::load(p).map(|b| b.device == dev.display().to_string()).unwrap_or(false)).collect(),
+        };
+        let file = match files.as_slice() {
+            [f] => f.clone(),
+            [] => bail!("no backup found for {}; see `restore --list`", dev.display()),
+            _ => bail!("several backups match, choose one with --backup (see `restore --list`)"),
+        };
+        let b = backup::load(&file)?;
+        if b.device != dev.display().to_string() {
+            bail!("backup belongs to {}, not {}", b.device, dev.display());
+        }
+        let mut io = BlockDevice::open(&dev, true)?;
+        backup::restore(&mut io, &b, *force)?;
+        std::fs::remove_file(&file)?;
+        println!("restored LBA {} on {} (backup {} removed)", b.lba, dev.display(), file.display());
+        let _ = io.name();
         return Ok(0);
     }
 
@@ -163,7 +224,7 @@ fn run(cli: &Cli) -> Result<i32> {
             Cmd::Monitor { interval } => {
                 monitor(&mut s, size, *interval)?;
             }
-            Cmd::List => unreachable!(),
+            Cmd::List | Cmd::Restore { .. } => unreachable!(),
         }
     }
 

@@ -90,7 +90,9 @@ fn populated() -> MockController {
 }
 
 #[test]
-fn full_snapshot_and_sector_restore() {
+fn full_snapshot_no_auto_restore_and_explicit_restore() {
+    let dir = std::env::temp_dir().join(format!("orico-test-{}", std::process::id()));
+    std::env::set_var("ORICO_RAID_STATE_DIR", &dir);
     let mock = populated();
     let before = mock.sectors[&0x27];
     let mut s = Session::open(mock).expect("handshake + chip info");
@@ -112,14 +114,26 @@ fn full_snapshot_and_sector_restore() {
     assert!(snap.health.issues[0].contains("DEGRADED"));
     assert_eq!(snap.alarm_active, Some(false));
     assert!(snap.errors.is_empty(), "{:?}", snap.errors);
-    // dropping the session puts the borrowed sector back
-    s.restore();
-    let io = &mut s.io;
-    assert_eq!(io.read_sector(0x27).unwrap(), before);
+    // nothing was written back automatically: the sector no longer holds the user data
+    assert_ne!(s.io.read_sector(0x27).unwrap(), before);
+    // but a backup exists and an explicit restore puts it back
+    let path = orico_raid::backup::backup_path("mock", 0x27);
+    let b = orico_raid::backup::load(&path).unwrap();
+    orico_raid::backup::restore(&mut s.io, &b, false).unwrap();
+    assert_eq!(s.io.read_sector(0x27).unwrap(), before);
+    // a backup that looks like a command frame is refused
+    let mut frame = cmd_chip_info().frame(1);
+    scramble(&mut frame);
+    assert!(orico_raid::backup::looks_like_frame(&frame));
+    let hexs: String = frame.iter().map(|x| format!("{x:02x}")).collect();
+    let bad = orico_raid::backup::Backup { device: "mock".into(), lba: 0x27, data_hex: hexs, unix_time: 0 };
+    assert!(orico_raid::backup::restore(&mut s.io, &bad, false).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn plain_disk_is_rejected_and_untouched() {
+    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test2-{}", std::process::id())));
     let mut m = MockController::new(0x27);
     m.plain_disk = true;
     let before = m.sectors.clone();
@@ -133,12 +147,13 @@ fn plain_disk_is_rejected_and_untouched() {
     let rc = std::rc::Rc::new(std::cell::RefCell::new(m));
     let r = Session::open(Shared(rc.clone()));
     assert!(r.is_err());
-    // the borrowed sector holds its original content again
-    assert_eq!(rc.borrow().sectors[&0x27], before[&0x27]);
+    // not restored automatically; the backup is what the user restores from
+    let _ = before;
 }
 
 #[test]
 fn smart_roundtrip() {
+    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())));
     let mut m = populated();
     m.smart_values[2] = 194;
     m.smart_values[2 + 3] = 100;
@@ -155,6 +170,7 @@ fn smart_roundtrip() {
 
 #[test]
 fn alarm_mute() {
+    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())));
     let mut m = populated();
     m.alarm = true;
     let mut s = Session::open(m).unwrap();

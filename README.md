@@ -38,16 +38,21 @@ scrambled, CRC-protected command/response frames through that same sector.
 
 ## Safety
 
-* The mailbox is a normal sector of the disk. The tool saves its content first and writes it back
-  when done (also on error, in `Drop`). A copy is kept in `$TMPDIR/orico-raid-sector-backup*.bin`
-  while the sector is borrowed – if the process is killed (SIGKILL / power loss) restore with
-  `dd if=<backup> of=/dev/sdX bs=512 seek=<lba> count=1 oflag=direct`.
-* Sectors 0x23..0x3f (depending on the partition table) are used. A disk that keeps boot-loader code there (GRUB `core.img` on an
-  MBR disk with the first partition at LBA 63) is briefly overwritten.
-* Never run it against disks you do not mean to probe: on a non-JMicron disk the handshake and
-  command frames are ordinary writes to that sector (restored immediately, but still writes).
-  Auto-detection only considers JMicron/ORICO-looking `sd*` devices.
-* The vendor tool does exactly the same, for every physical drive it finds.
+* The mailbox is an ordinary sector of the disk (LBA 0x23..0x3f, depending on the partition table).
+  Before first use the tool saves its original content to `/var/lib/orico-raid/` (or
+  `$ORICO_RAID_STATE_DIR`, fallback `/var/tmp`). An existing backup is never overwritten.
+* **The tool never writes the backup back by itself.** Once the controller is unlocked it may execute
+  any valid frame written to the mailbox, and the "original" content can be a stale command frame from an
+  earlier session. Restoring is an explicit step:
+  `orico-raid restore --list`, then `orico-raid restore -d /dev/sdX [--backup FILE]`.
+  `restore` refuses content that parses as a controller frame (plain or scrambled) unless `--force`.
+* After a run the sector holds the last frame exchanged (a read-only response). Only read commands are
+  sent (plus `alarm --mute`).
+* A disk that keeps boot-loader code in that range (GRUB `core.img` on an MBR disk with the first partition
+  at LBA 63) is overwritten until you restore. Restore if the disk is bootable.
+* On a non-JMicron disk the probe is an ordinary write to that sector, also left in place; restore it the same way.
+  Auto-detection only considers JMicron/ORICO-looking `sd*` devices; use `--device` deliberately.
+* The vendor tool does this to every physical drive it finds and restores automatically.
 
 ## Status of the decoding – what is verified and what is inferred
 
