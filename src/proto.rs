@@ -48,10 +48,10 @@ fn crc_table() -> [u32; 256] {
 /// `_CrcFast`: seed 0x52325032, processes the buffer as little-endian dwords,
 /// feeding the four bytes of every dword most-significant byte first.
 pub fn crc_fast(data: &[u8]) -> u32 {
-    assert!(data.len() % 4 == 0);
+    assert!(data.len().is_multiple_of(4));
     let t = crc_table();
     let mut crc = 0x5232_5032u32;
-    for w in data.chunks_exact(4) {
+    for w in data.as_chunks::<4>().0 {
         for &b in w.iter().rev() {
             crc = (crc << 8) ^ t[(((crc >> 24) as u8) ^ b) as usize];
         }
@@ -80,7 +80,7 @@ const NEXT: [u32; 32] = [
 pub fn keystream() -> [u8; SECTOR] {
     let mut out = [0u8; SECTOR];
     let mut key = 0x5232_5032u32;
-    for w in out.chunks_exact_mut(4) {
+    for w in out.as_chunks_mut::<4>().0 {
         let mut o = 0u32;
         for (i, &p) in PERM.iter().enumerate() {
             o |= ((key >> p) & 1) << i;

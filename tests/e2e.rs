@@ -5,7 +5,9 @@ use orico_raid::proto::*;
 use orico_raid::session::*;
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+    (0..s.len() / 2)
+        .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+        .collect()
 }
 
 /// Frames written by the *unmodified vendor code* (raidapi.o run in a CPU emulator) must be
@@ -30,10 +32,17 @@ fn frames_match_vendor_code() {
     assert_eq!(wr("smart_fis"), cmd_fis(2, &fis).frame(781).to_vec());
     // handshakes
     for (i, m) in HANDSHAKE_SEQUENCE.iter().enumerate() {
-        assert_eq!(unhex(g["handshake"][i].as_str().unwrap()), handshake_frame(*m).to_vec(), "handshake mode {m}");
+        assert_eq!(
+            unhex(g["handshake"][i].as_str().unwrap()),
+            handshake_frame(*m).to_vec(),
+            "handshake mode {m}"
+        );
     }
     // key-stream
-    assert_eq!(unhex(g["keystream"].as_str().unwrap()), keystream().to_vec());
+    assert_eq!(
+        unhex(g["keystream"].as_str().unwrap()),
+        keystream().to_vec()
+    );
 }
 
 fn populated() -> MockController {
@@ -126,23 +135,82 @@ fn full_snapshot_no_auto_restore_and_explicit_restore() {
     scramble(&mut frame);
     assert!(orico_raid::backup::looks_like_frame(&frame));
     let hexs: String = frame.iter().map(|x| format!("{x:02x}")).collect();
-    let bad = orico_raid::backup::Backup { device: "mock".into(), lba: 0x27, data_hex: hexs, unix_time: 0 };
+    let bad = orico_raid::backup::Backup {
+        device: "mock".into(),
+        lba: 0x27,
+        data_hex: hexs,
+        unix_time: 0,
+    };
     assert!(orico_raid::backup::restore(&mut s.io, &bad, false).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
+fn backup_failure_prevents_any_disk_writes() {
+    let base = std::env::temp_dir().join(format!("orico-backup-failure-{}", std::process::id()));
+    let blocker = base.join("not-a-directory");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(&blocker, b"block directory creation").unwrap();
+    std::env::set_var("ORICO_RAID_STATE_DIR", blocker.join("nested"));
+
+    let mock = populated();
+    let before = mock.sectors.clone();
+    let writes = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    struct CountWrites {
+        inner: MockController,
+        writes: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+    impl SectorIo for CountWrites {
+        fn read_sector(&mut self, lba: u64) -> anyhow::Result<[u8; 512]> {
+            self.inner.read_sector(lba)
+        }
+        fn write_sector(&mut self, lba: u64, data: &[u8; 512]) -> anyhow::Result<()> {
+            self.writes.set(self.writes.get() + 1);
+            self.inner.write_sector(lba, data)
+        }
+        fn name(&self) -> String {
+            "mock-backup-failure".into()
+        }
+    }
+    let result = Session::open(CountWrites {
+        inner: mock,
+        writes: writes.clone(),
+    });
+    assert!(
+        result.is_err(),
+        "opening must fail if the persistent backup cannot be written"
+    );
+    assert_eq!(
+        writes.get(),
+        0,
+        "no protocol write may occur before backup persistence"
+    );
+    assert_eq!(before, populated().sectors);
+    let _ = std::fs::remove_file(blocker);
+    let _ = std::fs::remove_dir(base);
+}
+
+#[test]
 fn plain_disk_is_rejected_and_untouched() {
-    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test2-{}", std::process::id())));
+    std::env::set_var(
+        "ORICO_RAID_STATE_DIR",
+        std::env::temp_dir().join(format!("orico-test2-{}", std::process::id())),
+    );
     let mut m = MockController::new(0x27);
     m.plain_disk = true;
     let before = m.sectors.clone();
     // Session::open takes ownership; use a shared handle to inspect afterwards
     struct Shared(std::rc::Rc<std::cell::RefCell<MockController>>);
     impl SectorIo for Shared {
-        fn read_sector(&mut self, l: u64) -> anyhow::Result<[u8; 512]> { self.0.borrow_mut().read_sector(l) }
-        fn write_sector(&mut self, l: u64, d: &[u8; 512]) -> anyhow::Result<()> { self.0.borrow_mut().write_sector(l, d) }
-        fn name(&self) -> String { "shared".into() }
+        fn read_sector(&mut self, l: u64) -> anyhow::Result<[u8; 512]> {
+            self.0.borrow_mut().read_sector(l)
+        }
+        fn write_sector(&mut self, l: u64, d: &[u8; 512]) -> anyhow::Result<()> {
+            self.0.borrow_mut().write_sector(l, d)
+        }
+        fn name(&self) -> String {
+            "shared".into()
+        }
     }
     let rc = std::rc::Rc::new(std::cell::RefCell::new(m));
     let r = Session::open(Shared(rc.clone()));
@@ -153,7 +221,10 @@ fn plain_disk_is_rejected_and_untouched() {
 
 #[test]
 fn smart_roundtrip() {
-    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())));
+    std::env::set_var(
+        "ORICO_RAID_STATE_DIR",
+        std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())),
+    );
     let mut m = populated();
     m.smart_values[2] = 194;
     m.smart_values[2 + 3] = 100;
@@ -170,7 +241,10 @@ fn smart_roundtrip() {
 
 #[test]
 fn alarm_mute() {
-    std::env::set_var("ORICO_RAID_STATE_DIR", std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())));
+    std::env::set_var(
+        "ORICO_RAID_STATE_DIR",
+        std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())),
+    );
     let mut m = populated();
     m.alarm = true;
     let mut s = Session::open(m).unwrap();

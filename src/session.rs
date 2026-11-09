@@ -23,18 +23,26 @@ pub fn find_mailbox_lba<IO: SectorIo + ?Sized>(io: &mut IO, slot: u8) -> u64 {
     let mut c: u32 = 0x27;
     if s0[0x1be] == 0 && s0[0x1c2] == 0xee && s0[0x1c6] == 1 {
         // protective MBR -> GPT
-        let Ok(hdr) = io.read_sector(1) else { return fallback as u64 };
+        let Ok(hdr) = io.read_sector(1) else {
+            return fallback as u64;
+        };
         if &hdr[0..8] != b"EFI PART" {
             return finish(c); // vendor skips the slot subtraction here
         }
-        let Ok(ent) = io.read_sector(2) else { return fallback as u64 };
+        let Ok(ent) = io.read_sector(2) else {
+            return fallback as u64;
+        };
         // the vendor code looks only at the low byte of the first entry's FirstLBA
         if ent[0x20] > 1 {
             c = ent[0x20] as u32 - 1;
         }
     } else if s0[0x1fe] == 0x55 && s0[0x1ff] == 0xaa {
         // MBR: just in front of the first partition, at most sector 62
-        c = if s0[0x1c6] < 2 { 0x3e } else { (s0[0x1c6] as u32 - 1).min(0x3e) };
+        c = if s0[0x1c6] < 2 {
+            0x3e
+        } else {
+            (s0[0x1c6] as u32 - 1).min(0x3e)
+        };
     } else if &s0[0..2] == b"ER" && s0[2] == 2 && s0[3] == 0 {
         c = 0x3f; // Apple partition map
     }
@@ -52,8 +60,8 @@ pub struct Session<IO: SectorIo> {
 }
 
 impl<IO: SectorIo> Session<IO> {
-    /// Probe `io` for a JMicron management channel. Fails (after restoring the
-    /// sector it borrowed) if the device does not answer the handshake + chip-info command.
+    /// Probe `io` for a JMicron management channel. The sector backup must be persisted
+    /// successfully before any protocol writes are issued.
     pub fn open(mut io: IO) -> Result<Self> {
         // pick a mailbox sector that is not already holding a controller frame
         let mut lba = None;
@@ -71,8 +79,18 @@ impl<IO: SectorIo> Session<IO> {
             None => bail!("no usable mailbox sector found on {}", io.name()),
         };
         let saved = io.read_sector(lba)?;
-        let backup_file = crate::backup::save(&io.name(), lba, &saved).ok().flatten();
-        let mut s = Session { io, lba, seq: 1, saved, backup_file, pid: 0, retry_delay: Duration::from_millis(200) };
+        // The persistent copy must exist before the first write: the in-memory copy
+        // cannot help if probing fails or the process/device stops responding.
+        let backup_file = crate::backup::save(&io.name(), lba, &saved)?;
+        let mut s = Session {
+            io,
+            lba,
+            seq: 1,
+            saved,
+            backup_file,
+            pid: 0,
+            retry_delay: Duration::from_millis(200),
+        };
         for m in HANDSHAKE_SEQUENCE {
             s.io.write_sector(lba, &proto::handshake_frame(m))?;
         }
@@ -81,15 +99,20 @@ impl<IO: SectorIo> Session<IO> {
                 s.pid = r.pid;
                 Ok(s)
             }
-            Err(e) => {
-                Err(anyhow!("{} does not answer as a JMicron RAID controller: {e}", s.io.name()))
-            }
+            Err(e) => Err(anyhow!(
+                "{} does not answer as a JMicron RAID controller: {e}",
+                s.io.name()
+            )),
         }
     }
 
     fn next_seq(&mut self) -> u32 {
         let s = self.seq;
-        self.seq = if self.seq >= 0x7fff_ffff { 1 } else { self.seq + 1 };
+        self.seq = if self.seq >= 0x7fff_ffff {
+            1
+        } else {
+            self.seq + 1
+        };
         s
     }
 

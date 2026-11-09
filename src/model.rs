@@ -24,7 +24,7 @@ pub fn hex(b: &[u8]) -> String {
 /// Returns the cleaned string.
 pub fn swapstr(src: &[u8]) -> String {
     let mut out = Vec::with_capacity(src.len());
-    for p in src.chunks_exact(2) {
+    for p in src.as_chunks::<2>().0 {
         out.push(p[1]);
         out.push(p[0]);
     }
