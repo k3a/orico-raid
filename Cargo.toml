@@ -1,0 +1,17 @@
+[package]
+name = "orico-raid"
+version = "0.1.0"
+edition = "2021"
+description = "Linux CLI for ORICO / JMicron (JMB39x / JMS56x) hardware-RAID enclosures: device & RAID state"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+strip = true
