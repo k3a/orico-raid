@@ -40,7 +40,7 @@ impl BlockDevice {
     }
 
     fn check_geometry(&self) -> Result<()> {
-        const BLKSSZGET: libc::c_ulong = 0x1268;
+        const BLKSSZGET: libc::Ioctl = 0x1268;
         let mut ss: libc::c_int = 0;
         // SAFETY: BLKSSZGET writes one c_int.
         let r = unsafe { libc::ioctl(self.file.as_raw_fd(), BLKSSZGET, &mut ss) };
@@ -56,7 +56,7 @@ impl BlockDevice {
 
     /// Size in bytes (BLKGETSIZE64).
     pub fn size_bytes(&self) -> Option<u64> {
-        const BLKGETSIZE64: libc::c_ulong = 0x8008_1272;
+        const BLKGETSIZE64: libc::Ioctl = 0x8008_1272_u32 as libc::Ioctl;
         let mut sz: u64 = 0;
         let r = unsafe { libc::ioctl(self.file.as_raw_fd(), BLKGETSIZE64, &mut sz) };
         (r == 0).then_some(sz)
