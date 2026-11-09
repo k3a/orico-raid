@@ -68,7 +68,11 @@ pub fn render_snapshot(s: &Snapshot) -> String {
     let _ = writeln!(o, "\nDisks");
     for d in &s.disks {
         if !d.present {
-            let _ = writeln!(o, "  port {}: empty", d.port);
+            let _ = writeln!(o, "  port {}: not present (the controller does not report this port)", d.port);
+            continue;
+        }
+        if d.model.trim().is_empty() && d.serial.trim().is_empty() {
+            let _ = writeln!(o, "  port {}: no disk", d.port);
             continue;
         }
         let role = match (d.membership_a.kind, d.usage) {

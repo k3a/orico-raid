@@ -73,10 +73,12 @@ pub fn smart<IO: SectorIo>(s: &mut Session<IO>, port: u8) -> Result<Vec<SmartAtt
     }
     let v = s.command(&cmd_fis(port, &smart_fis(0xd0)))?;
     let t = s.command(&cmd_fis(port, &smart_fis(0xd1)))?;
-    if v.data.len() < 0x16a || t.data.len() < 0x16a {
+    // the vendor code copies the page from offset 0x10 of the returned FIS buffer
+    const OFF: usize = 0x10;
+    if v.data.len() < OFF + 0x16a || t.data.len() < OFF + 0x16a {
         bail!("short SMART response");
     }
-    Ok(parse_smart(&v.data, &t.data))
+    Ok(parse_smart(&v.data[OFF..], &t.data[OFF..]))
 }
 
 // ---- snapshot --------------------------------------------------------------------
@@ -117,6 +119,19 @@ pub fn collect<IO: SectorIo>(s: &mut Session<IO>, os_bytes: Option<u64>) -> Resu
             Err(e) => errors.push(format!("raid port {p}: {e}")),
         }
     }
+    // the controller mirrors volume 0 again at higher port indexes; keep the first of each
+    let mut seen: Vec<(String, String)> = vec![];
+    raids.retain(|r: &RaidPort| {
+        if !r.valid {
+            return true;
+        }
+        let key = (r.name.clone(), r.serial.clone());
+        if seen.contains(&key) {
+            return false;
+        }
+        seen.push(key);
+        true
+    });
     let alarm = match alarm_active(s) {
         Ok(a) => Some(a),
         Err(e) => {
@@ -168,6 +183,8 @@ pub fn assess(chip: &ChipInfo, disks: &[SataDisk], raids: &[RaidPort], alarm: Op
     if alarm == Some(true) {
         bump(1, "controller alarm is sounding".into());
     }
-    let _ = disks;
+    if !raids.iter().any(|r| r.valid) && disks.iter().any(|d| d.present && d.membership_a.kind == 2) {
+        bump(1, "disks report RAID membership but no volume was decoded (run `raw` and report it)".into());
+    }
     Health { level, issues }
 }

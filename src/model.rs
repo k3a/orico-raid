@@ -84,6 +84,41 @@ pub struct VoltageChannel {
     pub in_range: bool,
 }
 
+impl EventBits {
+    /// Vendor `GetNotificationFlag` classification: 0 none, 1 = word_1e8 bits 8..12,
+    /// 2 = rebuild-port bits (word_1e4 bits 16..21), 3 = controller changed (word_1ec bit 14),
+    /// 4 = disk-port bits (word_1e4 bits 0..5 or word_1e8 bits 0..4), 5 = 4 + 2.
+    pub fn notification_group(&self) -> u8 {
+        if self.controller_changed {
+            return 3;
+        }
+        let mut g = 0;
+        if self.rebuild_ports_mask != 0 {
+            g = 2;
+        }
+        if self.disk_ports_mask != 0 || self.word_1e8 & 0x1f != 0 {
+            g = 4;
+        }
+        if g == 0 && self.word_1e8 & 0x1f00 != 0 {
+            g = 1;
+        }
+        if g == 4 && self.rebuild_ports_mask != 0 {
+            g = 5;
+        }
+        g
+    }
+    pub fn group_name(&self) -> &'static str {
+        match self.notification_group() {
+            0 => "none",
+            1 => "controller notice (word_1e8 bits 8..12)",
+            2 => "RAID/rebuild activity",
+            3 => "controller configuration changed",
+            4 => "disk status change",
+            _ => "disk status change + RAID/rebuild activity",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct EventBits {
     pub word_1e4: u32,
@@ -326,7 +361,8 @@ pub fn parse_raid_port(index: usize, r: &[u8]) -> RaidPort {
     };
     RaidPort {
         index,
-        valid: flags & 1 != 0,
+        // bit0 is the documented "volume exists" flag; also accept a populated member table
+        valid: flags & 1 != 0 || (members_n > 0 && members.iter().any(|m| m.valid)),
         name: swapstr(&r[4..0x2d]),
         serial: swapstr(&r[0x2c..0x41]),
         level_code,

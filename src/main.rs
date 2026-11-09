@@ -186,7 +186,7 @@ fn run(cli: &Cli) -> Result<i32> {
                 if let Cmd::Check = cli.cmd {
                     let tag = ["OK", "WARNING", "CRITICAL"][snap.health.level.min(2) as usize];
                     let raids = snap.raids.iter().filter(|r| r.valid).count();
-                    let present = snap.disks.iter().filter(|d| d.present).count();
+                    let present = snap.disks.iter().filter(|d| d.present && !(d.model.trim().is_empty() && d.serial.trim().is_empty())).count();
                     println!(
                         "RAID {tag} - {}: {} volume(s), {} disk(s){}{}",
                         path.display(),
@@ -283,8 +283,8 @@ fn run(cli: &Cli) -> Result<i32> {
                     if cli.json {
                         println!("{}", serde_json::to_string_pretty(e)?);
                     } else {
-                        println!("{}: pending={} controller_changed={} disk_port_mask={:#04x} rebuild_port_mask={:#04x} words={:#010x}/{:#010x}/{:#06x}",
-                            s.device, e.any_pending, e.controller_changed, e.disk_ports_mask, e.rebuild_ports_mask, e.word_1e4, e.word_1e8, e.word_1ec);
+                        println!("{}: pending={} controller_changed={} disk_port_mask={:#04x} rebuild_port_mask={:#04x} words={:#010x}/{:#010x}/{:#06x}\n  vendor notification group {}: {}\n  (latched since the last acknowledgement by the vendor software; not an error)",
+                            s.device, e.any_pending, e.controller_changed, e.disk_ports_mask, e.rebuild_ports_mask, e.word_1e4, e.word_1e8, e.word_1ec, e.notification_group(), e.group_name());
                     }
                 }
             }
