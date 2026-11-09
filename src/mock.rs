@@ -71,31 +71,69 @@ impl MockController {
         let port = cmd_frame[0xc] as usize;
         let (win_off, win_len): (usize, usize);
         let data: Vec<u8> = match (kind, sub) {
-            (1, 1) => { win_off = 0xc; win_len = 0x1f4; self.chip.clone() }
-            (2, 1) => { win_off = 0x10; win_len = 0x1f0; self.all_sata.clone() }
-            (2, 2) => { assert_eq!(cmd_frame[0x10] as usize, port); win_off = 0xc; win_len = 0x1f4; self.sata[port].clone() }
-            (3, 2) => { assert_eq!(cmd_frame[0x10] as usize, port); win_off = 0xc; win_len = 0x1f4; self.raid[port].clone() }
+            (1, 1) => {
+                win_off = 0xc;
+                win_len = 0x1f4;
+                self.chip.clone()
+            }
+            (2, 1) => {
+                win_off = 0x10;
+                win_len = 0x1f0;
+                self.all_sata.clone()
+            }
+            (2, 2) => {
+                assert_eq!(cmd_frame[0x10] as usize, port);
+                win_off = 0xc;
+                win_len = 0x1f4;
+                self.sata[port].clone()
+            }
+            (3, 2) => {
+                assert_eq!(cmd_frame[0x10] as usize, port);
+                win_off = 0xc;
+                win_len = 0x1f4;
+                self.raid[port].clone()
+            }
             (2, 3) => {
-                win_off = 0x10; win_len = 0x1f0;
+                win_off = 0x10;
+                win_len = 0x1f0;
                 assert_eq!(&cmd_frame[0xc..0x10], &[port as u8, 2, 0, 0xe0]);
                 let feat = cmd_frame[0x12];
                 assert_eq!(cmd_frame[0x1e], 0xb0); // SMART opcode in the FIS
-                // like the real chip: the 512-byte ATA page comes back 0x10 bytes into the FIS buffer
-                let page = if feat == 0xd0 { &self.smart_values } else { &self.smart_thresholds };
+                                                   // like the real chip: the 512-byte ATA page comes back 0x10 bytes into the FIS buffer
+                let page = if feat == 0xd0 {
+                    &self.smart_values
+                } else {
+                    &self.smart_thresholds
+                };
                 let mut d = vec![0u8; 0x10];
                 d.extend_from_slice(page);
                 d
             }
             (1, 8) => {
-                win_off = 0xc; win_len = 0x1f4;
+                win_off = 0xc;
+                win_len = 0x1f4;
                 let mut d = vec![0u8; 0x1f4];
-                if self.alarm { d[0] = 0; d[2] = 1 } else { d[0] = 1 }
+                if self.alarm {
+                    d[0] = 0;
+                    d[2] = 1
+                } else {
+                    d[0] = 1
+                }
                 d
             }
-            (1, 6) => { self.alarm = false; win_off = 0xc; win_len = 0x1f4; vec![0; 0x1f4] }
-            _ => { out[11] = 0x80; return out; }
+            (1, 6) => {
+                self.alarm = false;
+                win_off = 0xc;
+                win_len = 0x1f4;
+                vec![0; 0x1f4]
+            }
+            _ => {
+                out[11] = 0x80;
+                return out;
+            }
         };
-        out[win_off..win_off + data.len().min(win_len)].copy_from_slice(&data[..data.len().min(win_len)]);
+        out[win_off..win_off + data.len().min(win_len)]
+            .copy_from_slice(&data[..data.len().min(win_len)]);
         let crc = crc_fast(&out[..0x1fc]);
         out[0x1fc..].copy_from_slice(&crc.to_le_bytes());
         out

@@ -35,20 +35,44 @@ pub fn render_snapshot(s: &Snapshot) -> String {
         let _ = writeln!(
             o,
             "  Hardware monitor: fan {} | temperature {} | voltages {}",
-            if h.fan_stopped { "STOPPED".to_string() } else if h.fan_rpm > 0 { format!("{} rpm{}", h.fan_rpm, if h.fan_alarm { " (ALARM)" } else { "" }) } else { "n/a".into() },
+            if h.fan_stopped {
+                "STOPPED".to_string()
+            } else if h.fan_rpm > 0 {
+                format!(
+                    "{} rpm{}",
+                    h.fan_rpm,
+                    if h.fan_alarm { " (ALARM)" } else { "" }
+                )
+            } else {
+                "n/a".into()
+            },
             if h.temperature_alarm { "ALARM" } else { "ok" },
-            if !h.voltage_monitor { "n/a".to_string() } else if h.voltages.iter().all(|v| v.in_range) { "ok".into() } else { "OUT OF RANGE".into() },
+            if !h.voltage_monitor {
+                "n/a".to_string()
+            } else if h.voltages.iter().all(|v| v.in_range) {
+                "ok".into()
+            } else {
+                "OUT OF RANGE".into()
+            },
         );
     }
     if c.events.any_pending {
-        let _ = writeln!(o, "  Pending controller events: yes (see `orico-raid events`)");
+        let _ = writeln!(
+            o,
+            "  Pending controller events: yes (see `orico-raid events`)"
+        );
     }
 
     let _ = writeln!(o, "\nRAID volumes");
     let mut any = false;
     for r in s.raids.iter().filter(|r| r.valid) {
         any = true;
-        let members: Vec<String> = r.members.iter().filter(|m| m.valid).map(|m| format!("port{}", m.disk_port)).collect();
+        let members: Vec<String> = r
+            .members
+            .iter()
+            .filter(|m| m.valid)
+            .map(|m| format!("port{}", m.disk_port))
+            .collect();
         let _ = writeln!(
             o,
             "  RAID {}: {:<10} {:<10} {:>9.1} GiB  members: {}{}{}",
@@ -56,9 +80,19 @@ pub fn render_snapshot(s: &Snapshot) -> String {
             r.level,
             r.state,
             r.capacity_gib,
-            if members.is_empty() { "-".to_string() } else { members.join(",") },
-            r.rebuild_percent.map(|p| format!("  rebuild {p}%")).unwrap_or_default(),
-            if r.name.is_empty() { String::new() } else { format!("  \"{}\"", r.name) },
+            if members.is_empty() {
+                "-".to_string()
+            } else {
+                members.join(",")
+            },
+            r.rebuild_percent
+                .map(|p| format!("  rebuild {p}%"))
+                .unwrap_or_default(),
+            if r.name.is_empty() {
+                String::new()
+            } else {
+                format!("  \"{}\"", r.name)
+            },
         );
     }
     if !any {
@@ -68,7 +102,11 @@ pub fn render_snapshot(s: &Snapshot) -> String {
     let _ = writeln!(o, "\nDisks");
     for d in &s.disks {
         if !d.present {
-            let _ = writeln!(o, "  port {}: not present (the controller does not report this port)", d.port);
+            let _ = writeln!(
+                o,
+                "  port {}: not present (the controller does not report this port)",
+                d.port
+            );
             continue;
         }
         if d.model.trim().is_empty() && d.serial.trim().is_empty() {
@@ -96,7 +134,11 @@ pub fn render_snapshot(s: &Snapshot) -> String {
     if s.health.issues.is_empty() {
         let _ = writeln!(o, "Health: OK");
     } else {
-        let _ = writeln!(o, "Health: {}", ["OK", "WARNING", "CRITICAL"][s.health.level.min(2) as usize]);
+        let _ = writeln!(
+            o,
+            "Health: {}",
+            ["OK", "WARNING", "CRITICAL"][s.health.level.min(2) as usize]
+        );
         for i in &s.health.issues {
             let _ = writeln!(o, "  - {i}");
         }
@@ -112,23 +154,43 @@ pub fn render_raid_detail(r: &RaidPort) -> String {
     let _ = writeln!(o, "RAID {}  (slot {})", dash(&r.name), r.index);
     let _ = writeln!(o, "  state     : {} (code {})", r.state, r.state_code);
     let _ = writeln!(o, "  level     : {} (code {})", r.level, r.level_code);
-    let _ = writeln!(o, "  capacity  : {:.2} GiB ({} x 32 MiB)", r.capacity_gib, r.capacity_units);
+    let _ = writeln!(
+        o,
+        "  capacity  : {:.2} GiB ({} x 32 MiB)",
+        r.capacity_gib, r.capacity_units
+    );
     if let Some(p) = r.rebuild_percent {
         let _ = writeln!(o, "  rebuild   : {p}%");
     }
     let _ = writeln!(o, "  serial    : {}", dash(&r.serial));
     let _ = writeln!(o, "  members   : {} reported", r.member_count);
     for m in r.members.iter().filter(|m| m.valid) {
-        let _ = writeln!(o, "    slot {} -> port {} (group {}, {:.2} GiB used)", m.slot, m.disk_port, m.group, units_to_gib(m.used_units));
+        let _ = writeln!(
+            o,
+            "    slot {} -> port {} (group {}, {:.2} GiB used)",
+            m.slot,
+            m.disk_port,
+            m.group,
+            units_to_gib(m.used_units)
+        );
     }
-    let _ = writeln!(o, "  rebuild priority {}, standby {} min, password {}", r.rebuild_priority, r.standby_minutes, if r.has_password { "set" } else { "none" });
+    let _ = writeln!(
+        o,
+        "  rebuild priority {}, standby {} min, password {}",
+        r.rebuild_priority,
+        r.standby_minutes,
+        if r.has_password { "set" } else { "none" }
+    );
     o
 }
 
 pub fn render_smart(port: u8, attrs: &[SmartAttr]) -> String {
     let mut o = String::new();
     let _ = writeln!(o, "SMART attributes, port {port}");
-    let _ = writeln!(o, "  ID  NAME                      FLAGS  CUR WRST THR  RAW");
+    let _ = writeln!(
+        o,
+        "  ID  NAME                      FLAGS  CUR WRST THR  RAW"
+    );
     for a in attrs {
         let _ = writeln!(
             o,
@@ -143,7 +205,11 @@ pub fn render_smart(port: u8, attrs: &[SmartAttr]) -> String {
             if a.failing { "  <-- FAILING" } else { "" }
         );
     }
-    if let Some(t) = attrs.iter().find(|a| a.id == 194).or_else(|| attrs.iter().find(|a| a.id == 190)) {
+    if let Some(t) = attrs
+        .iter()
+        .find(|a| a.id == 194)
+        .or_else(|| attrs.iter().find(|a| a.id == 190))
+    {
         let _ = writeln!(o, "Temperature: {} C", t.raw & 0xff);
     }
     o

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Linux CLI for ORICO / JMicron (JMB39x / JMS56x) hardware-RAID enclosures: device & RAID state"
 license = "MIT"
+readme = "README.md"
+keywords = ["raid", "orico", "jmicron", "jmb39x", "smart"]
+categories = ["command-line-utilities", "hardware-support"]
+exclude = ["re/", ".github/"]
 
 [dependencies]
 anyhow = "1"

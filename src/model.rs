@@ -34,17 +34,45 @@ pub fn swapstr(src: &[u8]) -> String {
 
 fn ascii(b: &[u8]) -> String {
     let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-    let s: String = b[..end].iter().map(|&c| if (0x20..0x7f).contains(&c) { c as char } else { '.' }).collect();
+    let s: String = b[..end]
+        .iter()
+        .map(|&c| {
+            if (0x20..0x7f).contains(&c) {
+                c as char
+            } else {
+                '.'
+            }
+        })
+        .collect();
     s.trim().to_string()
 }
 
 // ------------------------------------------------------------- enums ---------
 
-pub const RAID_STATE_NAMES: [&str; 6] = ["Broken", "Degraded", "Rebuilding", "Normal", "Expansion", "Backup"];
-pub const RAID_LEVEL_NAMES: [&str; 8] = ["RAID 0", "RAID 1", "LARGE", "RAID 3", "CLONE", "RAID 5", "RAID 10", "RAID 0 Opt"];
+pub const RAID_STATE_NAMES: [&str; 6] = [
+    "Broken",
+    "Degraded",
+    "Rebuilding",
+    "Normal",
+    "Expansion",
+    "Backup",
+];
+pub const RAID_LEVEL_NAMES: [&str; 8] = [
+    "RAID 0",
+    "RAID 1",
+    "LARGE",
+    "RAID 3",
+    "CLONE",
+    "RAID 5",
+    "RAID 10",
+    "RAID 0 Opt",
+];
 
 pub fn raid_state_name(s: u8) -> String {
-    RAID_STATE_NAMES.get(s as usize).map(|s| s.to_string()).unwrap_or_else(|| format!("Unknown({s})"))
+    RAID_STATE_NAMES
+        .get(s as usize)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Unknown({s})"))
 }
 
 /// A mirror (level 1) built from more than three members is shown as RAID 10 by the GUI.
@@ -52,7 +80,10 @@ pub fn raid_level_name(level: u8, members: u8) -> String {
     if level == 1 && members > 3 {
         return "RAID 10".into();
     }
-    RAID_LEVEL_NAMES.get(level as usize).map(|s| s.to_string()).unwrap_or_else(|| format!("Unknown({level})"))
+    RAID_LEVEL_NAMES
+        .get(level as usize)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Unknown({level})"))
 }
 
 /// Capacity fields are reported in units of 32 MiB (the GUI divides them by 32 to print GB).
@@ -160,7 +191,12 @@ fn parse_hwmon(d: &[u8]) -> Option<HwMonitor> {
             (x.wrapping_mul(l).wrapping_mul(m) / 10).wrapping_add(x.wrapping_mul(h).wrapping_mul(m))
         };
         let (value, min, max) = (conv(adc), conv(lo), conv(hi));
-        VoltageChannel { value, min, max, in_range: !(value < min || value > max) }
+        VoltageChannel {
+            value,
+            min,
+            max,
+            in_range: !(value < min || value > max),
+        }
     };
     let voltages = vec![
         chan(d[0x6a], d[0x6b], d[0x68], d[0x69]),
@@ -173,7 +209,10 @@ fn parse_hwmon(d: &[u8]) -> Option<HwMonitor> {
     } else if count == 0 || div_code == 0 {
         (0, false)
     } else {
-        (1_350_000 / (((2u32) << (div_code - 1)) * count as u32), false)
+        (
+            1_350_000 / (((2u32) << (div_code - 1)) * count as u32),
+            false,
+        )
     };
     Some(HwMonitor {
         voltage_monitor: f & 0x10 != 0,
@@ -272,8 +311,16 @@ pub fn parse_sata_disk(port: usize, all: &[u8], port_info: &[u8]) -> SataDisk {
         capacity_units: cap,
         capacity_gib: units_to_gib(cap),
         usage: a[0x48],
-        membership_a: Membership { kind: a[0x41], raid_index: a[0x42], member_slot: a[0x43] },
-        membership_b: Membership { kind: a[0x45], raid_index: a[0x46], member_slot: a[0x47] },
+        membership_a: Membership {
+            kind: a[0x41],
+            raid_index: a[0x42],
+            member_slot: a[0x43],
+        },
+        membership_b: Membership {
+            kind: a[0x45],
+            raid_index: a[0x46],
+            member_slot: a[0x47],
+        },
         status_flags: (a[0x4b] & 0x3f) as u16 | ((a[0x4d] as u16) << 6),
         recorded_member_a: ident(0x84, 0xac, 0xc6, 0xcc),
         recorded_member_b: ident(0x104, 0x12c, 0x146, 0x14c),
@@ -353,7 +400,11 @@ pub fn parse_raid_port(index: usize, r: &[u8]) -> RaidPort {
             raw: [m[4], m[8], m[0xa], m[0xb]],
         });
     }
-    let eff_size = if level_code == 1 && members_n == 4 { size >> 1 } else { size };
+    let eff_size = if level_code == 1 && members_n == 4 {
+        size >> 1
+    } else {
+        size
+    };
     let rebuild_percent = if (state == 2 || state == 5) && eff_size > 0 {
         Some((progress as u64 * 100 / eff_size as u64).min(100) as u32)
     } else {
@@ -462,7 +513,11 @@ pub fn parse_smart(values: &[u8], thresholds: &[u8]) -> Vec<SmartAttr> {
         for i in (0..6).rev() {
             raw = raw << 8 | values[b + 5 + i] as u64;
         }
-        let thr = (0..30).map(|t| 2 + 12 * t).find(|&t| thresholds[t] == id).map(|t| thresholds[t + 1]).unwrap_or(0);
+        let thr = (0..30)
+            .map(|t| 2 + 12 * t)
+            .find(|&t| thresholds[t] == id)
+            .map(|t| thresholds[t + 1])
+            .unwrap_or(0);
         let cur = values[b + 3];
         out.push(SmartAttr {
             id,

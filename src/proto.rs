@@ -38,7 +38,11 @@ fn crc_table() -> [u32; 256] {
     for (i, e) in t.iter_mut().enumerate() {
         let mut c = (i as u32) << 24;
         for _ in 0..8 {
-            c = if c & 0x8000_0000 != 0 { (c << 1) ^ 0x04c1_1db7 } else { c << 1 };
+            c = if c & 0x8000_0000 != 0 {
+                (c << 1) ^ 0x04c1_1db7
+            } else {
+                c << 1
+            };
         }
         *e = c;
     }
@@ -63,16 +67,43 @@ pub fn crc_fast(data: &[u8]) -> u32 {
 
 /// Bit permutation applied to the running key (`_Scrambling`, `local_9c`).
 const PERM: [u8; 32] = [
-    11, 31, 13, 21, 7, 16, 0, 19, 4, 26, 6, 15, 24, 2, 14, 28, 12, 5, 20, 10, 22, 1, 17, 9, 29, 3, 25,
-    8, 18, 23, 30, 27,
+    11, 31, 13, 21, 7, 16, 0, 19, 4, 26, 6, 15, 24, 2, 14, 28, 12, 5, 20, 10, 22, 1, 17, 9, 29, 3,
+    25, 8, 18, 23, 30, 27,
 ];
 /// Key-advance matrix: new_key bit j = parity(key & NEXT[j]) (`local_5c`).
 const NEXT: [u32; 32] = [
-    0xf701_1641, 0x1903_3ac3, 0xc507_63c7, 0x8a0e_c78e, 0xe31c_995d, 0x3138_24fb, 0x6270_49f6,
-    0x33e1_85ad, 0x90c2_1d1b, 0x2184_3a36, 0xb409_622d, 0x9f13_d21b, 0xc926_b277, 0x924d_64ee,
-    0x249a_c9dc, 0x4935_93b8, 0x656a_3131, 0xcad4_6262, 0x95a8_c4c4, 0x2b51_8988, 0x56a3_1310,
-    0xad46_2620, 0xad8d_5a01, 0xac1b_a243, 0x5837_4486, 0xb06e_890c, 0x97dc_0459, 0x2fb8_08b2,
-    0x5f70_1164, 0xbee0_22c8, 0x7dc0_4590, 0xfb80_8b20,
+    0xf701_1641,
+    0x1903_3ac3,
+    0xc507_63c7,
+    0x8a0e_c78e,
+    0xe31c_995d,
+    0x3138_24fb,
+    0x6270_49f6,
+    0x33e1_85ad,
+    0x90c2_1d1b,
+    0x2184_3a36,
+    0xb409_622d,
+    0x9f13_d21b,
+    0xc926_b277,
+    0x924d_64ee,
+    0x249a_c9dc,
+    0x4935_93b8,
+    0x656a_3131,
+    0xcad4_6262,
+    0x95a8_c4c4,
+    0x2b51_8988,
+    0x56a3_1310,
+    0xad46_2620,
+    0xad8d_5a01,
+    0xac1b_a243,
+    0x5837_4486,
+    0xb06e_890c,
+    0x97dc_0459,
+    0x2fb8_08b2,
+    0x5f70_1164,
+    0xbee0_22c8,
+    0x7dc0_4590,
+    0xfb80_8b20,
 ];
 
 /// The 512 byte key-stream. The key chain does not depend on the data, so the
@@ -139,7 +170,12 @@ pub struct Command {
 
 impl Command {
     pub fn new(kind: u8, sub: u8) -> Self {
-        Command { kind, sub, args: vec![], payload: vec![] }
+        Command {
+            kind,
+            sub,
+            args: vec![],
+            payload: vec![],
+        }
     }
     pub fn args(mut self, a: &[u8]) -> Self {
         self.args = a.to_vec();
@@ -161,7 +197,11 @@ impl Command {
         f[11] = 0xff;
         f[0x0c..0x0c + self.args.len()].copy_from_slice(&self.args);
         f[0x10..0x10 + self.payload.len()].copy_from_slice(&self.payload);
-        let flags: u16 = if self.kind == 1 && self.sub == 1 { 0 } else { 10 };
+        let flags: u16 = if self.kind == 1 && self.sub == 1 {
+            0
+        } else {
+            10
+        };
         f[0x1fa..0x1fc].copy_from_slice(&flags.to_le_bytes());
         let crc = crc_fast(&f[..0x1fc]);
         f[0x1fc..].copy_from_slice(&crc.to_le_bytes());
@@ -189,9 +229,17 @@ pub enum ResponseError {
 impl std::fmt::Display for ResponseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ResponseError::BadMagic(m) => write!(f, "sector does not hold a controller response (first dword {m:#010x})"),
-            ResponseError::BadSeq { want, got } => write!(f, "stale/unknown response (sequence {got}, expected {want})"),
-            ResponseError::BadCommand { want, got } => write!(f, "response is for command {got:?}, expected {want:?}"),
+            ResponseError::BadMagic(m) => write!(
+                f,
+                "sector does not hold a controller response (first dword {m:#010x})"
+            ),
+            ResponseError::BadSeq { want, got } => write!(
+                f,
+                "stale/unknown response (sequence {got}, expected {want})"
+            ),
+            ResponseError::BadCommand { want, got } => {
+                write!(f, "response is for command {got:?}, expected {want:?}")
+            }
             ResponseError::Status(s) => write!(f, "controller returned error status {s:#04x}"),
         }
     }
@@ -207,23 +255,40 @@ pub struct Response {
 
 /// Validate and unwrap a response read back from the mailbox sector.
 /// `raw` is the sector as read from disk (still scrambled).
-pub fn parse_response(raw: &[u8; SECTOR], cmd: &Command, seq: u32) -> Result<Response, ResponseError> {
+pub fn parse_response(
+    raw: &[u8; SECTOR],
+    cmd: &Command,
+    seq: u32,
+) -> Result<Response, ResponseError> {
     let mut f = *raw;
     scramble(&mut f);
     let magic = u32::from_le_bytes(f[0..4].try_into().unwrap());
     let rseq = u32::from_le_bytes(f[4..8].try_into().unwrap());
     // the vendor code does not check the magic of the response, only the sequence
     if rseq != seq {
-        return Err(if magic != FRAME_MAGIC && magic != 0 { ResponseError::BadMagic(magic) } else { ResponseError::BadSeq { want: seq, got: rseq } });
+        return Err(if magic != FRAME_MAGIC && magic != 0 {
+            ResponseError::BadMagic(magic)
+        } else {
+            ResponseError::BadSeq {
+                want: seq,
+                got: rseq,
+            }
+        });
     }
     if (f[9], f[10]) != (cmd.kind, cmd.sub) {
-        return Err(ResponseError::BadCommand { want: (cmd.kind, cmd.sub), got: (f[9], f[10]) });
+        return Err(ResponseError::BadCommand {
+            want: (cmd.kind, cmd.sub),
+            got: (f[9], f[10]),
+        });
     }
     if f[11] != 0 {
         return Err(ResponseError::Status(f[11]));
     }
     let (off, len) = response_window(cmd.kind, cmd.sub);
-    Ok(Response { pid: f[0], data: f[off..off + len].to_vec() })
+    Ok(Response {
+        pid: f[0],
+        data: f[off..off + len].to_vec(),
+    })
 }
 
 #[cfg(test)]

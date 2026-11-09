@@ -31,7 +31,10 @@ impl BlockDevice {
             .custom_flags(libc::O_DIRECT | libc::O_SYNC)
             .open(path)
             .with_context(|| format!("cannot open {} (need root?)", path.display()))?;
-        let dev = BlockDevice { file, path: path.to_path_buf() };
+        let dev = BlockDevice {
+            file,
+            path: path.to_path_buf(),
+        };
         dev.check_geometry()?;
         Ok(dev)
     }
@@ -72,7 +75,10 @@ impl SectorIo for BlockDevice {
             )
         };
         if n != SECTOR as isize {
-            bail!("short/failed read at LBA {lba}: {}", std::io::Error::last_os_error());
+            bail!(
+                "short/failed read at LBA {lba}: {}",
+                std::io::Error::last_os_error()
+            );
         }
         Ok(buf.0)
     }
@@ -88,7 +94,10 @@ impl SectorIo for BlockDevice {
             )
         };
         if n != SECTOR as isize {
-            bail!("short/failed write at LBA {lba}: {}", std::io::Error::last_os_error());
+            bail!(
+                "short/failed write at LBA {lba}: {}",
+                std::io::Error::last_os_error()
+            );
         }
         Ok(())
     }

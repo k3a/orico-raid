@@ -2,14 +2,18 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use orico_raid::api::{self, Snapshot};
 use orico_raid::io::BlockDevice;
+use orico_raid::io::SectorIo;
 use orico_raid::session::Session;
 use orico_raid::{backup, model, render, scan};
-use orico_raid::io::SectorIo;
 use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "orico-raid", version, about = "Status tool for ORICO / JMicron hardware RAID enclosures (JMB39x, JMS56x)")]
+#[command(
+    name = "orico-raid",
+    version,
+    about = "Status tool for ORICO / JMicron hardware RAID enclosures (JMB39x, JMS56x)"
+)]
 struct Cli {
     /// Block device(s) exported by the enclosure, e.g. /dev/sdb. Default: every disk that looks
     /// like a JMicron/ORICO bridge (see `list`).
@@ -71,14 +75,18 @@ fn targets(cli: &Cli) -> Result<Vec<PathBuf>> {
     if !cli.device.is_empty() {
         return Ok(cli.device.clone());
     }
-    let c: Vec<PathBuf> = scan::list().into_iter().filter(|c| c.likely).map(|c| c.dev).collect();
+    let c: Vec<PathBuf> = scan::list()
+        .into_iter()
+        .filter(|c| c.likely)
+        .map(|c| c.dev)
+        .collect();
     if c.is_empty() {
         bail!("no JMicron/ORICO-looking disk found; pass the enclosure's disk with --device /dev/sdX (see `orico-raid list`)");
     }
     Ok(c)
 }
 
-fn open(path: &PathBuf) -> Result<(Session<BlockDevice>, Option<u64>)> {
+fn open(path: &std::path::Path) -> Result<(Session<BlockDevice>, Option<u64>)> {
     let dev = BlockDevice::open(path, true)?;
     let size = dev.size_bytes();
     let s = match Session::open(dev) {
@@ -123,7 +131,11 @@ fn run(cli: &Cli) -> Result<i32> {
                     c.model,
                     c.size_bytes as f64 / (1u64 << 30) as f64,
                     c.usb_id.clone().unwrap_or_else(|| c.transport.clone()),
-                    if c.likely { "<- JMicron/ORICO candidate" } else { "" },
+                    if c.likely {
+                        "<- JMicron/ORICO candidate"
+                    } else {
+                        ""
+                    },
                 );
             }
             if l.is_empty() {
@@ -133,11 +145,22 @@ fn run(cli: &Cli) -> Result<i32> {
         return Ok(0);
     }
 
-    if let Cmd::Restore { backup: bf, list, force } = &cli.cmd {
+    if let Cmd::Restore {
+        backup: bf,
+        list,
+        force,
+    } = &cli.cmd
+    {
         if *list {
             for p in backup::list() {
                 match backup::load(&p) {
-                    Ok(b) => println!("{}  device {} LBA {} saved {}", p.display(), b.device, b.lba, b.unix_time),
+                    Ok(b) => println!(
+                        "{}  device {} LBA {} saved {}",
+                        p.display(),
+                        b.device,
+                        b.lba,
+                        b.unix_time
+                    ),
                     Err(e) => println!("{}  unreadable: {e}", p.display()),
                 }
             }
@@ -149,11 +172,21 @@ fn run(cli: &Cli) -> Result<i32> {
         };
         let files: Vec<PathBuf> = match bf {
             Some(f) => vec![f.clone()],
-            None => backup::list().into_iter().filter(|p| backup::load(p).map(|b| b.device == dev.display().to_string()).unwrap_or(false)).collect(),
+            None => backup::list()
+                .into_iter()
+                .filter(|p| {
+                    backup::load(p)
+                        .map(|b| b.device == dev.display().to_string())
+                        .unwrap_or(false)
+                })
+                .collect(),
         };
         let file = match files.as_slice() {
             [f] => f.clone(),
-            [] => bail!("no backup found for {}; see `restore --list`", dev.display()),
+            [] => bail!(
+                "no backup found for {}; see `restore --list`",
+                dev.display()
+            ),
             _ => bail!("several backups match, choose one with --backup (see `restore --list`)"),
         };
         let b = backup::load(&file)?;
@@ -163,7 +196,12 @@ fn run(cli: &Cli) -> Result<i32> {
         let mut io = BlockDevice::open(&dev, true)?;
         backup::restore(&mut io, &b, *force)?;
         std::fs::remove_file(&file)?;
-        println!("restored LBA {} on {} (backup {} removed)", b.lba, dev.display(), file.display());
+        println!(
+            "restored LBA {} on {} (backup {} removed)",
+            b.lba,
+            dev.display(),
+            file.display()
+        );
         let _ = io.name();
         return Ok(0);
     }
@@ -180,19 +218,35 @@ fn run(cli: &Cli) -> Result<i32> {
             }
         };
         match &cli.cmd {
-            Cmd::Status | Cmd::Check | Cmd::Raid | Cmd::Disks | Cmd::Hwmon | Cmd::Events | Cmd::Raw => {
+            Cmd::Status
+            | Cmd::Check
+            | Cmd::Raid
+            | Cmd::Disks
+            | Cmd::Hwmon
+            | Cmd::Events
+            | Cmd::Raw => {
                 let snap = api::collect(&mut s, size)?;
                 worst = worst.max(snap.health.level as i32);
                 if let Cmd::Check = cli.cmd {
                     let tag = ["OK", "WARNING", "CRITICAL"][snap.health.level.min(2) as usize];
                     let raids = snap.raids.iter().filter(|r| r.valid).count();
-                    let present = snap.disks.iter().filter(|d| d.present && !(d.model.trim().is_empty() && d.serial.trim().is_empty())).count();
+                    let present = snap
+                        .disks
+                        .iter()
+                        .filter(|d| {
+                            d.present && !(d.model.trim().is_empty() && d.serial.trim().is_empty())
+                        })
+                        .count();
                     println!(
                         "RAID {tag} - {}: {} volume(s), {} disk(s){}{}",
                         path.display(),
                         raids,
                         present,
-                        if snap.health.issues.is_empty() { "" } else { " - " },
+                        if snap.health.issues.is_empty() {
+                            ""
+                        } else {
+                            " - "
+                        },
                         snap.health.issues.join("; ")
                     );
                     continue;
@@ -216,7 +270,11 @@ fn run(cli: &Cli) -> Result<i32> {
                     println!("{}: alarm muted", path.display());
                 }
                 let a = api::alarm_active(&mut s)?;
-                println!("{}: alarm {}", path.display(), if a { "SOUNDING" } else { "off" });
+                println!(
+                    "{}: alarm {}",
+                    path.display(),
+                    if a { "SOUNDING" } else { "off" }
+                );
                 if a {
                     worst = worst.max(1);
                 }
@@ -257,7 +315,13 @@ fn run(cli: &Cli) -> Result<i32> {
                     println!("{}", serde_json::to_string_pretty(&v)?);
                 } else {
                     for s in &snaps {
-                        print!("{}", render::render_snapshot(s).split("\nDisks\n").nth(1).unwrap_or(""));
+                        print!(
+                            "{}",
+                            render::render_snapshot(s)
+                                .split("\nDisks\n")
+                                .nth(1)
+                                .unwrap_or("")
+                        );
                     }
                 }
             }
@@ -267,10 +331,27 @@ fn run(cli: &Cli) -> Result<i32> {
                         Some(h) if cli.json => println!("{}", serde_json::to_string_pretty(h)?),
                         Some(h) => {
                             println!("{}", s.device);
-                            println!("  fan: {}", if h.fan_stopped { "stopped".into() } else { format!("{} rpm", h.fan_rpm) });
-                            println!("  fan alarm: {}   temperature alarm: {}", h.fan_alarm, h.temperature_alarm);
+                            println!(
+                                "  fan: {}",
+                                if h.fan_stopped {
+                                    "stopped".into()
+                                } else {
+                                    format!("{} rpm", h.fan_rpm)
+                                }
+                            );
+                            println!(
+                                "  fan alarm: {}   temperature alarm: {}",
+                                h.fan_alarm, h.temperature_alarm
+                            );
                             for (i, v) in h.voltages.iter().enumerate() {
-                                println!("  voltage ch{}: {} (limits {}..{}) {}", i + 1, v.value, v.min, v.max, if v.in_range { "ok" } else { "OUT OF RANGE" });
+                                println!(
+                                    "  voltage ch{}: {} (limits {}..{}) {}",
+                                    i + 1,
+                                    v.value,
+                                    v.min,
+                                    v.max,
+                                    if v.in_range { "ok" } else { "OUT OF RANGE" }
+                                );
                             }
                         }
                         None => println!("{}: no hardware monitor reported", s.device),
@@ -292,7 +373,10 @@ fn run(cli: &Cli) -> Result<i32> {
                 for s in &snaps {
                     println!("== {} chip info\n{}", s.device, s.controller.raw_hex);
                     for d in &s.disks {
-                        println!("== sata disk {}\n{}\n{}", d.port, d.raw_all_sata_hex, d.raw_port_hex);
+                        println!(
+                            "== sata disk {}\n{}\n{}",
+                            d.port, d.raw_all_sata_hex, d.raw_port_hex
+                        );
                     }
                     for r in &s.raids {
                         println!("== raid port {}\n{}", r.index, r.raw_hex);
@@ -317,7 +401,11 @@ fn monitor(s: &mut Session<BlockDevice>, size: Option<u64>, interval: u64) -> Re
                 }
             }
         }
-        for r in cur.raids.iter().filter(|r| r.valid && matches!(r.state_code, 2 | 5)) {
+        for r in cur
+            .raids
+            .iter()
+            .filter(|r| r.valid && matches!(r.state_code, 2 | 5))
+        {
             if let Some(pct) = r.rebuild_percent {
                 println!("RAID {} {}: {}%", r.index, r.state, pct);
             }
@@ -332,7 +420,15 @@ fn diff(a: &Snapshot, b: &Snapshot) -> Vec<String> {
     let mut v = vec![];
     for (x, y) in a.disks.iter().zip(b.disks.iter()) {
         if x.present != y.present {
-            v.push(format!("port {}: {}", y.port, if y.present { "The disk is plugged in." } else { "The disk is unplugged." }));
+            v.push(format!(
+                "port {}: {}",
+                y.port,
+                if y.present {
+                    "The disk is plugged in."
+                } else {
+                    "The disk is unplugged."
+                }
+            ));
         }
     }
     for (x, y) in a.raids.iter().zip(b.raids.iter()) {
@@ -342,9 +438,17 @@ fn diff(a: &Snapshot, b: &Snapshot) -> Vec<String> {
             v.push(format!("RAID {} ({}) is deleted.", y.index, x.name));
         } else if y.valid && x.state_code != y.state_code {
             if matches!(x.state_code, 2 | 5) && y.state_code == 3 {
-                v.push(format!("RAID {} ({}) has been rebuilt successfully.", y.index, y.name));
+                v.push(format!(
+                    "RAID {} ({}) has been rebuilt successfully.",
+                    y.index, y.name
+                ));
             }
-            v.push(format!("RAID {} ({}) is in {} state.", y.index, y.name, model::raid_state_name(y.state_code).to_uppercase()));
+            v.push(format!(
+                "RAID {} ({}) is in {} state.",
+                y.index,
+                y.name,
+                model::raid_state_name(y.state_code).to_uppercase()
+            ));
         }
     }
     if let (Some(x), Some(y)) = (&a.controller.hw_monitor, &b.controller.hw_monitor) {
@@ -354,7 +458,10 @@ fn diff(a: &Snapshot, b: &Snapshot) -> Vec<String> {
         if !x.temperature_alarm && y.temperature_alarm {
             v.push("The temperature is abnormal.".into());
         }
-        let (bx, by) = (x.voltages.iter().all(|c| c.in_range), y.voltages.iter().all(|c| c.in_range));
+        let (bx, by) = (
+            x.voltages.iter().all(|c| c.in_range),
+            y.voltages.iter().all(|c| c.in_range),
+        );
         if bx && !by {
             v.push("The voltage is abnormal.".into());
         }

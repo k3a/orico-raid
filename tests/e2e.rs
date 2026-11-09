@@ -45,6 +45,12 @@ fn frames_match_vendor_code() {
     );
 }
 
+/// Tests that set `ORICO_RAID_STATE_DIR` share process-wide state; serialize them.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn populated() -> MockController {
     let mut m = MockController::new(0x27);
     // chip info
@@ -100,6 +106,7 @@ fn populated() -> MockController {
 
 #[test]
 fn full_snapshot_no_auto_restore_and_explicit_restore() {
+    let _env = env_guard();
     let dir = std::env::temp_dir().join(format!("orico-test-{}", std::process::id()));
     std::env::set_var("ORICO_RAID_STATE_DIR", &dir);
     let mock = populated();
@@ -147,6 +154,7 @@ fn full_snapshot_no_auto_restore_and_explicit_restore() {
 
 #[test]
 fn backup_failure_prevents_any_disk_writes() {
+    let _env = env_guard();
     let base = std::env::temp_dir().join(format!("orico-backup-failure-{}", std::process::id()));
     let blocker = base.join("not-a-directory");
     std::fs::create_dir_all(&base).unwrap();
@@ -192,6 +200,7 @@ fn backup_failure_prevents_any_disk_writes() {
 
 #[test]
 fn plain_disk_is_rejected_and_untouched() {
+    let _env = env_guard();
     std::env::set_var(
         "ORICO_RAID_STATE_DIR",
         std::env::temp_dir().join(format!("orico-test2-{}", std::process::id())),
@@ -221,6 +230,7 @@ fn plain_disk_is_rejected_and_untouched() {
 
 #[test]
 fn smart_roundtrip() {
+    let _env = env_guard();
     std::env::set_var(
         "ORICO_RAID_STATE_DIR",
         std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())),
@@ -241,6 +251,7 @@ fn smart_roundtrip() {
 
 #[test]
 fn alarm_mute() {
+    let _env = env_guard();
     std::env::set_var(
         "ORICO_RAID_STATE_DIR",
         std::env::temp_dir().join(format!("orico-test3-{}", std::process::id())),

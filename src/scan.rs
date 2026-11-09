@@ -17,7 +17,9 @@ pub struct Candidate {
 }
 
 fn read(p: &Path) -> String {
-    fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default()
+    fs::read_to_string(p)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Walk up from the block device's sysfs node looking for a USB device
@@ -38,7 +40,9 @@ fn usb_id(block: &Path) -> Option<String> {
 
 pub fn list() -> Vec<Candidate> {
     let mut out = vec![];
-    let Ok(rd) = fs::read_dir("/sys/block") else { return out };
+    let Ok(rd) = fs::read_dir("/sys/block") else {
+        return out;
+    };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if !name.starts_with("sd") {
@@ -50,10 +54,21 @@ pub fn list() -> Vec<Candidate> {
         let sectors: u64 = read(&base.join("size")).parse().unwrap_or(0);
         let usb = usb_id(&base);
         let transport = if usb.is_some() { "usb" } else { "scsi/sata" }.to_string();
-        let jm = usb.as_deref().map(|u| u.starts_with("152d:")).unwrap_or(false);
+        let jm = usb
+            .as_deref()
+            .map(|u| u.starts_with("152d:"))
+            .unwrap_or(false);
         let nm = format!("{vendor} {model}").to_ascii_lowercase();
         let likely = jm || nm.contains("jmicron") || nm.contains("orico");
-        out.push(Candidate { dev: PathBuf::from("/dev").join(&name), vendor, model, size_bytes: sectors * 512, usb_id: usb, transport, likely });
+        out.push(Candidate {
+            dev: PathBuf::from("/dev").join(&name),
+            vendor,
+            model,
+            size_bytes: sectors * 512,
+            usb_id: usb,
+            transport,
+            likely,
+        });
     }
     out.sort_by(|a, b| a.dev.cmp(&b.dev));
     out

@@ -153,7 +153,12 @@ pub fn collect<IO: SectorIo>(s: &mut Session<IO>, os_bytes: Option<u64>) -> Resu
     })
 }
 
-pub fn assess(chip: &ChipInfo, disks: &[SataDisk], raids: &[RaidPort], alarm: Option<bool>) -> Health {
+pub fn assess(
+    chip: &ChipInfo,
+    disks: &[SataDisk],
+    raids: &[RaidPort],
+    alarm: Option<bool>,
+) -> Health {
     let mut level = 0u8;
     let mut issues = vec![];
     let mut bump = |l: u8, msg: String| {
@@ -163,10 +168,24 @@ pub fn assess(chip: &ChipInfo, disks: &[SataDisk], raids: &[RaidPort], alarm: Op
     for r in raids.iter().filter(|r| r.valid) {
         match r.state_code {
             3 => {}
-            2 | 5 => bump(1, format!("RAID {} ({}) is {}{}", r.index, r.name, r.state, r.rebuild_percent.map(|p| format!(" ({p}%)")).unwrap_or_default())),
+            2 | 5 => bump(
+                1,
+                format!(
+                    "RAID {} ({}) is {}{}",
+                    r.index,
+                    r.name,
+                    r.state,
+                    r.rebuild_percent
+                        .map(|p| format!(" ({p}%)"))
+                        .unwrap_or_default()
+                ),
+            ),
             1 => bump(2, format!("RAID {} ({}) is DEGRADED", r.index, r.name)),
             0 => bump(2, format!("RAID {} ({}) is BROKEN", r.index, r.name)),
-            _ => bump(1, format!("RAID {} ({}) state: {}", r.index, r.name, r.state)),
+            _ => bump(
+                1,
+                format!("RAID {} ({}) state: {}", r.index, r.name, r.state),
+            ),
         }
     }
     if let Some(h) = &chip.hw_monitor {
@@ -183,8 +202,13 @@ pub fn assess(chip: &ChipInfo, disks: &[SataDisk], raids: &[RaidPort], alarm: Op
     if alarm == Some(true) {
         bump(1, "controller alarm is sounding".into());
     }
-    if !raids.iter().any(|r| r.valid) && disks.iter().any(|d| d.present && d.membership_a.kind == 2) {
-        bump(1, "disks report RAID membership but no volume was decoded (run `raw` and report it)".into());
+    if !raids.iter().any(|r| r.valid) && disks.iter().any(|d| d.present && d.membership_a.kind == 2)
+    {
+        bump(
+            1,
+            "disks report RAID membership but no volume was decoded (run `raw` and report it)"
+                .into(),
+        );
     }
     Health { level, issues }
 }

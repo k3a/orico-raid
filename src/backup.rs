@@ -106,8 +106,8 @@ pub fn data(b: &Backup) -> Result<[u8; SECTOR]> {
         bail!("corrupt backup");
     }
     let mut d = [0u8; SECTOR];
-    for i in 0..SECTOR {
-        d[i] = u8::from_str_radix(&b.data_hex[2 * i..2 * i + 2], 16)?;
+    for (i, byte) in d.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&b.data_hex[2 * i..2 * i + 2], 16)?;
     }
     Ok(d)
 }
